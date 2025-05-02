@@ -1,0 +1,15 @@
+[project]
+name = "lib-version"
+version = "0.0.0-pre"
+description = "Tiny helper that returns its own package version."
+authors = [{ name = "remla25-team8", email = "Y.Huang-51@student.tudelft.nl" }]
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+where = ["."]
