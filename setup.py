@@ -10,4 +10,5 @@ setup(
     python_requires=">=3.6",
     setup_requires=["setuptools_scm"],
     use_scm_version=True,
+    extras_require={"dev": ["pytest"]}
 )

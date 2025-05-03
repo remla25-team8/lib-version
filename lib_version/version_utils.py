@@ -1,7 +1,7 @@
-from importlib import metadata
+from importlib.metadata import version
 
-def get_version() -> str:
-    return metadata.version(__package__ or "lib-version")
-def print_version() -> str:
-    print(get_version())
-    return "done"
+def print_version():
+    print(version("lib_version"))
+
+def get_version():
+    return version("lib_version")
