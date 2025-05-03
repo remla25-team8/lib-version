@@ -9,6 +9,11 @@ setup(
     install_requires=[],
     python_requires=">=3.6",
     setup_requires=["setuptools_scm"],
-    use_scm_version=True,
-    extras_require={"dev": ["pytest"]}
+    use_scm_version={
+        "version_scheme": "release-branch-semver",
+        "local_scheme": "no-local-version",
+    },
+    extras_require={
+        "dev": ["pytest"],
+    },
 )
