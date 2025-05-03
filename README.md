@@ -1,0 +1,1 @@
+This is a basic implementation for a python package that can output its version.
