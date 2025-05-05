@@ -1,9 +1,4 @@
-FROM python:3.11-slim AS builder
-
-WORKDIR /app
-COPY requirements.txt .
-RUN pip install --user -r requirements.txt
-
+# ------------ Runtime image ------------
 FROM python:3.11-slim
 
 ARG VERSION=dev
@@ -15,8 +10,8 @@ LABEL org.opencontainers.image.source=$REPO_URL \
       org.opencontainers.image.version=$VERSION
 
 WORKDIR /app
-COPY --from=builder /root/.local /root/.local
-ENV PATH=/root/.local/bin:$PATH
-COPY src/ .
+COPY lib_version/ lib_version/
+COPY pyproject.toml .
+RUN pip install --no-cache-dir .
 
 CMD ["python", "-c", "from lib_version import VersionUtil; VersionUtil.print_version()"]
