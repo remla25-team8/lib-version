@@ -1,15 +1,15 @@
-name: Publish Python Package to GitHub Packages
+name: Release Python Package to GitHub Packages
 
 on:
   push:
     tags:
-      - 'v*'  # Trigger on version tags (e.g., v0.2.1)
+      - 'v*'  # Trigger on version tags (e.g., v0.2.2)
 
 jobs:
-  publish:
+  build-and-publish:
     runs-on: ubuntu-latest
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
@@ -20,6 +20,11 @@ jobs:
         id: version
         run: |
           echo "version=${GITHUB_REF#refs/tags/v}" >> $GITHUB_OUTPUT
+
+      - name: Convert repository owner to lowercase
+        id: lowercase
+        run: |
+          echo "owner=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -34,26 +39,37 @@ jobs:
       - name: Build package
         run: python -m build
 
+      - name: Configure .pypirc for GitHub Packages
+        run: |
+          echo "[distutils]" > ~/.pypirc
+          echo "index-servers =" >> ~/.pypirc
+          echo "  github" >> ~/.pypirc
+          echo "" >> ~/.pypirc
+          echo "[github]" >> ~/.pypirc
+          echo "repository = https://npm.pkg.github.com" >> ~/.pypirc
+          echo "username = ${{ github.actor }}" >> ~/.pypirc
+          echo "password = ${{ secrets.GH_PAT }}" >> ~/.pypirc
+
       - name: Publish to GitHub Packages
-        env:
-          TWINE_USERNAME: ${{ github.actor }}
-          TWINE_PASSWORD: ${{ secrets.PAT_GITHUB_TOKEN }}
         run: |
           python -m twine upload \
-            --repository-url https://npm.pkg.github.com/@${{ github.repository_owner }} \
-            dist/* \
-            --verbose
+            --repository github \
+            --verbose \
+            dist/*
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          token: ${{ secrets.PAT_GITHUB_TOKEN }}
+          token: ${{ secrets.GH_PAT }}
           draft: false
           prerelease: ${{ contains(github.ref_name, '-pre') }}
           name: Release ${{ github.ref_name }}
           body: |
+            ## Python Package
 
-            - `lib_version@${{ steps.version.outputs.version }}` published to GitHub Packages
+            - `@${{ steps.lowercase.outputs.owner }}/lib_version:${{ steps.version.outputs.version }}` published to GitHub Packages
+
+            ## Installation
 
             ```bash
-            pip install lib_version==${{ steps.version.outputs.version }} --index-url https://npm.pkg.github.com/@${{ github.repository_owner }}
+            pip install lib_version==${{ steps.version.outputs.version }} --index-url https://npm.pkg.github.com/@${{ steps.lowercase.outputs.owner }}
