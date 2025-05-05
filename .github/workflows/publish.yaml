@@ -31,3 +31,11 @@ jobs:
             --title "${{ github.ref_name }}" \
             --notes "Release ${{ github.ref_name }}" \
             dist/*
+      - name: Publish to GitHub Packages
+        env:
+          TWINE_USERNAME: ${{ github.actor }}
+          TWINE_PASSWORD: ${{ secrets.GH_PAT }}
+        run: |
+          python -m twine upload \
+            --repository-url https://upload.pypi.org/legacy/ \
+            dist/*
