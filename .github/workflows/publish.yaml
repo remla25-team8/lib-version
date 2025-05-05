@@ -34,16 +34,6 @@ jobs:
           python -m pip install --upgrade build
           python -m build
 
-      - name: Publish to GitHub Packages
-        uses: pypa/gh-action-pypi-publish@release/v1
-        with:
-          password: ${{ secrets.GH_PAT }}
-          repository-url: https://upload.pypi.org/legacy/
-          repository_url: https://upload.pypi.org/legacy/
-
-          repository_type: github
-
-
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
