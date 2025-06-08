@@ -3,34 +3,76 @@ name: Create Pre-release
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      base_version:
+        description: 'Base version for pre-release (e.g., v1.2.3)'
+        required: true
+        type: string
 
 jobs:
   create-prerelease:
     if: |
-      !contains(github.event.release.tag_name, '-pre') &&
-      github.repository != 'remla25-team8/operation'
+      (github.event_name == 'release' && !contains(github.event.release.tag_name, '-pre') && github.repository != 'remla25-team8/operation') ||
+      github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
       - name: Calculate next pre-release version
         id: version
         run: |
-          # Extract base version (v1.2.3 -> 1.2.3)
-          BASE_VERSION=$(echo "${{ github.event.release.tag_name }}" | sed 's/^v//')
+          # Determine base version
+          if [ "${{ github.event_name }}" == "release" ]; then
+            # Extract base version from release tag (v1.2.3 -> 1.2.3)
+            BASE_VERSION=$(echo "${{ github.event.release.tag_name }}" | sed 's/^v//')
+            
+            # Split into major.minor.patch and increment PATCH version
+            IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+            NEXT_PATCH=$((PATCH + 1))
+            TARGET_VERSION="${MAJOR}.${MINOR}.${NEXT_PATCH}"
+          else
+            # Manual trigger - use provided base version
+            TARGET_VERSION=$(echo "${{ github.event.inputs.base_version }}" | sed 's/^v//')
+          fi
           
-          # Split into major.minor.patch
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$BASE_VERSION"
+          echo "Target version: ${TARGET_VERSION}"
           
-          # Increment PATCH version (1.2.3 -> 1.2.4-pre)
-          NEXT_PATCH=$((PATCH + 1))
-          NEXT_VERSION="v${MAJOR}.${MINOR}.${NEXT_PATCH}-pre"
-          STABLE_VERSION="v${MAJOR}.${MINOR}.${NEXT_PATCH}"
+          # Find existing pre-release versions for this target version
+          EXISTING_PRERELEASES=$(git tag -l "v${TARGET_VERSION}-pre-*" | sort -V)
+          echo "Existing pre-releases: ${EXISTING_PRERELEASES}"
+          
+          # Calculate next iteration number
+          ITERATION=1
+          if [ ! -z "$EXISTING_PRERELEASES" ]; then
+            # Extract the highest iteration number
+            HIGHEST_ITERATION=$(echo "$EXISTING_PRERELEASES" | sed "s/v${TARGET_VERSION}-pre-//g" | sort -n | tail -1)
+            ITERATION=$((HIGHEST_ITERATION + 1))
+          fi
+          
+          # Create new pre-release version
+          NEXT_VERSION="v${TARGET_VERSION}-pre-${ITERATION}"
+          STABLE_VERSION="v${TARGET_VERSION}"
           
           echo "next_version=${NEXT_VERSION}" >> $GITHUB_OUTPUT
           echo "stable_version=${STABLE_VERSION}" >> $GITHUB_OUTPUT
-          echo "Created pre-release version: ${NEXT_VERSION}"
+          echo "iteration=${ITERATION}" >> $GITHUB_OUTPUT
+          echo "target_version=${TARGET_VERSION}" >> $GITHUB_OUTPUT
+          
+          echo "Created pre-release version: ${NEXT_VERSION} (iteration ${ITERATION})"
+
+      - name: Check if version already exists
+        run: |
+          if git tag -l "${{ steps.version.outputs.next_version }}" | grep -q "${{ steps.version.outputs.next_version }}"; then
+            echo "Error: Tag ${{ steps.version.outputs.next_version }} already exists!"
+            exit 1
+          fi
 
       - name: Create pre-release
         uses: softprops/action-gh-release@v1
@@ -38,10 +80,24 @@ jobs:
           tag_name: ${{ steps.version.outputs.next_version }}
           name: "Pre-release ${{ steps.version.outputs.next_version }}"
           body: |
-            Automated pre-release for testing.
+            🚀 **Automated pre-release iteration ${{ steps.version.outputs.iteration }}**
             
-            **Parent Release**: ${{ github.event.release.tag_name }}
+            **Target Version**: ${{ steps.version.outputs.target_version }}
+            **Iteration**: ${{ steps.version.outputs.iteration }}
+            
+            ${{ github.event_name == 'release' && format('**Parent Release**: {0}', github.event.release.tag_name) || format('**Manual Trigger**: Base version {0}', github.event.inputs.base_version) }}
             
             This pre-release will become ${{ steps.version.outputs.stable_version }} when stable.
+            
+            ---
+            
+            ### Installation
+            ```bash
+            pip install git+https://github.com/${{ github.repository }}.git@${{ steps.version.outputs.next_version }}
+            ```
+            
+            ### Changes in this iteration
+            - Pre-release iteration for testing and validation
+            - Based on version ${{ steps.version.outputs.target_version }}
           prerelease: true
           draft: false
