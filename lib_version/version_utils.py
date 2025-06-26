@@ -1,10 +1,10 @@
-from importlib.metadata import version
+from . import __version__
 
 class VersionUtil:
     @staticmethod
     def print_version():
-        print(version("lib_version"))
+        print(__version__)
 
     @staticmethod
     def get_version():
-        return version("lib_version")
+        return __version__

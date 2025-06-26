@@ -1,0 +1,186 @@
+name: Create Iterative Pre-release
+
+on:
+  workflow_dispatch:
+    inputs:
+      base_version:
+        description: 'Base version for pre-release (e.g., v1.2.3 or 1.2.3)'
+        required: true
+        type: string
+      use_date_suffix:
+        description: 'Use date suffix instead of counter (YYYYMMDD format)'
+        required: false
+        type: boolean
+        default: false
+  push:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'lib_version/**'
+      - 'setup.py'
+      - 'pyproject.toml'
+
+jobs:
+  create-iterative-prerelease:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine base version
+        id: base_version
+        run: |
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            # Manual trigger - use provided base version
+            INPUT_VERSION="${{ github.event.inputs.base_version }}"
+            BASE_VERSION=$(echo "$INPUT_VERSION" | sed 's/^v//')
+            echo "Using manual input version: ${BASE_VERSION}"
+          else
+            # Auto trigger from push - derive from latest stable release
+            LATEST_STABLE=$(git tag -l "v*" | grep -v "pre" | sort -V | tail -1)
+            if [ -z "$LATEST_STABLE" ]; then
+              echo "No stable releases found, using v0.1.0 as base"
+              BASE_VERSION="0.1.0"
+            else
+              BASE_VERSION=$(echo "$LATEST_STABLE" | sed 's/^v//')
+              echo "Using latest stable release: ${BASE_VERSION}"
+            fi
+          fi
+          
+          echo "base_version=${BASE_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Calculate next pre-release version
+        id: version
+        run: |
+          BASE_VERSION="${{ steps.base_version.outputs.base_version }}"
+          USE_DATE="${{ github.event.inputs.use_date_suffix }}"
+          
+          echo "Base version: ${BASE_VERSION}"
+          echo "Use date suffix: ${USE_DATE}"
+          
+          if [ "$USE_DATE" == "true" ]; then
+            # Use date-based suffix
+            DATE_SUFFIX=$(date +%Y%m%d)
+            
+            # Check if date-based version already exists, add time if needed
+            CANDIDATE_VERSION="v${BASE_VERSION}-pre-${DATE_SUFFIX}"
+            if git tag -l "$CANDIDATE_VERSION" | grep -q "$CANDIDATE_VERSION"; then
+              TIME_SUFFIX=$(date +%H%M)
+              NEXT_VERSION="v${BASE_VERSION}-pre-${DATE_SUFFIX}-${TIME_SUFFIX}"
+            else
+              NEXT_VERSION="$CANDIDATE_VERSION"
+            fi
+            
+            SUFFIX_TYPE="date-based"
+            SUFFIX_VALUE="${DATE_SUFFIX}"
+          else
+            # Use counter-based suffix
+            EXISTING_PRERELEASES=$(git tag -l "v${BASE_VERSION}-pre-*" | grep -E "v${BASE_VERSION}-pre-[0-9]+$" | sort -V)
+            echo "Existing counter-based pre-releases: ${EXISTING_PRERELEASES}"
+            
+            # Calculate next iteration number
+            ITERATION=1
+            if [ ! -z "$EXISTING_PRERELEASES" ]; then
+              # Extract the highest iteration number
+              HIGHEST_ITERATION=$(echo "$EXISTING_PRERELEASES" | sed "s/v${BASE_VERSION}-pre-//g" | sort -n | tail -1)
+              ITERATION=$((HIGHEST_ITERATION + 1))
+            fi
+            
+            NEXT_VERSION="v${BASE_VERSION}-pre-${ITERATION}"
+            SUFFIX_TYPE="counter-based"
+            SUFFIX_VALUE="${ITERATION}"
+          fi
+          
+          STABLE_VERSION="v${BASE_VERSION}"
+          
+          echo "next_version=${NEXT_VERSION}" >> $GITHUB_OUTPUT
+          echo "stable_version=${STABLE_VERSION}" >> $GITHUB_OUTPUT
+          echo "suffix_type=${SUFFIX_TYPE}" >> $GITHUB_OUTPUT
+          echo "suffix_value=${SUFFIX_VALUE}" >> $GITHUB_OUTPUT
+          echo "base_version=${BASE_VERSION}" >> $GITHUB_OUTPUT
+          
+          echo "Created pre-release version: ${NEXT_VERSION} (${SUFFIX_TYPE}: ${SUFFIX_VALUE})"
+
+      - name: Check if version already exists
+        run: |
+          if git tag -l "${{ steps.version.outputs.next_version }}" | grep -q "${{ steps.version.outputs.next_version }}"; then
+            echo "Error: Tag ${{ steps.version.outputs.next_version }} already exists!"
+            exit 1
+          fi
+
+      - name: Extract version for package injection
+        id: package_version
+        run: |
+          # Extract version without 'v' prefix for package injection
+          PACKAGE_VERSION=$(echo "${{ steps.version.outputs.next_version }}" | sed 's/^v//')
+          echo "package_version=${PACKAGE_VERSION}" >> $GITHUB_OUTPUT
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+
+      - name: Inject version into package
+        run: |
+          sed -i "s/__version__ = .*/__version__ = \"${{ steps.package_version.outputs.package_version }}\"/" lib_version/__init__.py
+          echo "Injected version: ${{ steps.package_version.outputs.package_version }}"
+
+      - name: Build wheel & sdist
+        run: |
+          python -m pip install --upgrade build
+          python -m build
+
+      - name: Create iterative pre-release
+        uses: softprops/action-gh-release@v1
+        with:
+          tag_name: ${{ steps.version.outputs.next_version }}
+          name: "🔄 Iterative Pre-release ${{ steps.version.outputs.next_version }}"
+          body: |
+            🚀 **Automated iterative pre-release**
+            
+            **Base Version**: ${{ steps.version.outputs.base_version }}
+            **Pre-release Version**: ${{ steps.version.outputs.next_version }}
+            **Suffix Type**: ${{ steps.version.outputs.suffix_type }}
+            **Suffix Value**: ${{ steps.version.outputs.suffix_value }}
+            
+            **Trigger**: ${{ github.event_name == 'workflow_dispatch' && 'Manual' || 'Automatic (code change)' }}
+            ${{ github.event_name == 'workflow_dispatch' && format('**Manual Input**: {0}', github.event.inputs.base_version) || format('**Triggered by**: Push to {0}', github.ref_name) }}
+            
+            This iterative pre-release will eventually become ${{ steps.version.outputs.stable_version }} when stable.
+            
+            ---
+            
+            ### 📦 Installation Options
+            
+            **Via Git Tag:**
+            ```bash
+            pip install git+https://github.com/${{ github.repository }}.git@${{ steps.version.outputs.next_version }}
+            ```
+            
+            **Via GitHub Release:**
+            ```bash
+            # Download and install the wheel file from this release
+            ```
+            
+            ### 🔍 What's New in This Iteration
+            - Iterative pre-release for continuous testing and validation
+            - ${{ steps.version.outputs.suffix_type }} versioning system
+            - Based on stable version ${{ steps.version.outputs.base_version }}
+            
+            ### 🧪 Testing Instructions
+            ```python
+            from lib_version import VersionUtil
+            print(f"Version: {VersionUtil.get_version()}")
+            # Should output: ${{ steps.package_version.outputs.package_version }}
+            ```
+          prerelease: true
+          draft: false
+          files: |
+            dist/*.whl
+            dist/*.tar.gz 
